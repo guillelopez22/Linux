@@ -1,6 +1,5 @@
 package ext2;
 
-
 public class DirectoryEntry {
     // A directory is just a list of inodes and filenames (list of directory entries)
     // The inode points to the rest of the file's metadata, including the pointers to the data blocks
@@ -33,5 +32,29 @@ public class DirectoryEntry {
             }
         }
         REC_LEN = 8 + filename.length();
+    }
+
+    public int getInode() {
+        return I_NODE;
+    }
+
+    public int getRecLen() {
+        return REC_LEN;
+    }
+
+    public int getNameLen() {
+        return NAME_LEN;
+    }
+
+    public int getType() {
+        return FILE_TYPE;
+    }
+
+    public String getFilename() {
+        return filename;
+    }
+
+    public void setFilename(String filename) {
+        this.filename = filename;
     }
 }
