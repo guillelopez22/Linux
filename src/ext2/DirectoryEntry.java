@@ -119,4 +119,19 @@ public class DirectoryEntry {
         // Merge arrays
         return Bytes.concat(I_NODE, REC_LEN, NAME_LEN, TYPE, FILE_NAME);
     }
+    
+    public int getInodeNumber() {
+        return iNode;
+    }
+
+    public void setInodeNumber(int iNode) {
+        this.iNode = iNode;
+    }
+
+
+
+    public void setType(byte fileType) {
+        this.fileType = fileType;
+    }
+
 }

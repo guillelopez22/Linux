@@ -12,6 +12,7 @@ import java.util.Locale;
 import java.util.TimeZone;
 
 import static java.lang.Math.toIntExact;
+import java.util.ArrayList;
 
 public class Inode {
     public static final int DIRECTORY = 0;
@@ -26,16 +27,23 @@ public class Inode {
     private int deletionTime;
     // 48 bytes
     private final int[] directPointers = new int[12];
-
+    
+    private int inode;
     // type: directory or file
     public Inode(int type) {
         this.type = type;
         creationTime = toIntExact(System.currentTimeMillis() / 1000);
     }
+    public Inode(int inode, int type) {
+        this.inode = inode;
+        this.type = type;
+        creationTime = toIntExact(System.currentTimeMillis() / 1000);
+    }
 
-    public Inode(int type, int size) {
-        this(type);
+    public Inode(int inode, int type, int size) {
+        this(inode, type);
         this.size = size;
+        this.inode = inode;
     }
 
     // File size
@@ -121,5 +129,47 @@ public class Inode {
         // Merge all arrays
         // The resulting array is used to write this inode instance back to disk
         return Bytes.concat(TYPE, SIZE, CR_TIME, DEL_TIME, POINTERS);
+    }
+        // Save the references of the blocks passed to this method in the pointers
+    // FIX ME: return true if the blocks where added succesfully, false otherwise
+    public void addBlockPointers(int... blocks) {
+        if (blocks.length > 12) {
+            System.out.println("Too many blocks to allocate them all in 12 pointers");
+            return;
+        }
+        for (int block : blocks) {
+            for (int i = 0; i < 12; i++) {
+                if (directPointers[i] == 0) {
+                    directPointers[i] = block;
+                    break;
+                }
+            }
+        }
+    }
+    
+
+    public int getDeletionTime() {
+        return deletionTime;
+    }
+
+    public int getInodeNumber() {
+        return inode;
+    }
+
+    public void setInodeNumber(int inodeNumber) {
+        inode = inodeNumber;
+    }
+
+    public int[] getPointers() {
+        return directPointers;
+    }
+
+    public int[] getUsedPointers() {
+        ArrayList<Integer> blocks = new ArrayList<>();
+        for (int i : directPointers) {
+            if (i == 0) continue;
+            blocks.add(i);
+        }
+        return Ints.toArray(blocks);
     }
 }
