@@ -1,28 +1,5 @@
 package ext2;
 
-import java.util.LinkedList;
+import java.util.HashMap;
 
-public class InodeTable extends LinkedList<Inode> {
-
-    public InodeTable() {
-        super();
-    }
-
-    public Inode getByInodeNumber(int inodeNumber) {
-        for (Inode inode : this) {
-            if (inode.getInodeNumber() == inodeNumber) {
-                return inode;
-            }
-        }
-        return null;
-    }
-
-    public Inode findInode(int inodeNumber) {
-        for (Inode inode : this) {
-            if (inode.getInode() == inodeNumber) {
-                return inode;
-            }
-        }
-        return null;
-    }
-}
+public class InodeTable extends HashMap<Integer, Inode> {}

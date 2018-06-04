@@ -41,21 +41,23 @@ public class Inode {
     public Inode(int inode, int type) {
         this.inode = inode;
         this.type = type;
-        creationTime = toIntExact(System.currentTimeMillis() / 1000);
+        creationTime = modifiedTime = lastAccessTime = toIntExact(System.currentTimeMillis() / 1000);
+        linkCount = 1;
     }
 
     public Inode(int inode, int type, int size) {
         this(inode, type);
         this.size = size;
-        this.inode = inode;
     }
 
     // Save the references of the blocks passed to this method in the pointers
     // FIX ME? Return true if the blocks where added succesfully, false otherwise
-    public void addBlock(int... blocks) {
-        if (blocks.length > 12) {
-            System.out.println("Too many blocks to allocate them all in 12 pointers");
-            return;
+    public void addBlocks(int... blocks) {
+        int pointersLeft = 12 - getDirectBlocks().size();
+        if (blocks.length > pointersLeft) {
+            throw new IllegalArgumentException(String.format("There are only %d direct pointers left and %d blocks were sent",
+                    pointersLeft,
+                    blocks.length));
         }
         for (int block : blocks) {
             for (int i = 0; i < 12; i++) {
@@ -178,27 +180,6 @@ public class Inode {
 
     public void setCreationTime(int time) {
         creationTime = time;
-    }
-
-    public void setDeletionTime(int time) {
-        deletionTime = time;
-    }
-
-
-    public int getDeletionTime() {
-        return deletionTime;
-    }
-
-    public int getInodeNumber() {
-        return inode;
-    }
-
-    public void setInodeNumber(int inodeNumber) {
-        inode = inodeNumber;
-    }
-
-    public int[] getPointers() {
-        return directPointers;
     }
 
     public int getModifiedTime() {

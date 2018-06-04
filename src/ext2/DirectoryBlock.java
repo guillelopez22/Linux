@@ -1,13 +1,5 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package ext2;
-/**
- *
- * @author michelle
- */
+
 import java.util.ArrayList;
 
 public class DirectoryBlock extends ArrayList<DirectoryEntry> {
@@ -35,7 +27,6 @@ public class DirectoryBlock extends ArrayList<DirectoryEntry> {
             this.add(dirEntry);
         }
     }
-
 
     // Returns the sum of all the rec_len from 0 to 'index'
     public int getOffset(int index) {

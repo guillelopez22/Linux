@@ -1,17 +1,10 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package ext2;
 
-/**
- *
- * @author michelle
- */
+import org.apache.commons.io.FilenameUtils;
+
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Scanner;
-import java.util.ArrayList
 
 public class Shell {
 
@@ -29,7 +22,7 @@ public class Shell {
         String input, command;
         mainloop:
         for (; ; ) {
-            System.out.printf("%n%s: ", fileSystem.getCurrentPath());
+            System.out.printf("%n%s$ ", getCurrentPath());
             input = scanner.nextLine();
             command = input.split(" ")[0];
             switch (command) {
@@ -50,17 +43,17 @@ public class Shell {
                     break;
                 }
                 case "cd": {
-                    String opts[] = input.split(" ");
+                    String opts[] = input.split(" ", 2);
                     String path = (opts.length == 2) ? opts[1] : ".";
                     try {
                         cd(path);
                     } catch (IOException ioe) {
-                        System.err.println("Unexpected IO Exception ocurred");
+                        System.out.println("Unexpected IO Exception ocurred");
                     }
                     break;
                 }
                 case "cat": {
-                   if (input.contains(" > ")) {
+                    if (input.contains(" > ")) {
                         String opts[] = input.split(" > ");
                         String fileName = opts[1].trim();
                         if (Utils.containsIllegals(fileName)) {
@@ -100,7 +93,7 @@ public class Shell {
                             String fileName = opts[1];
                             cat(fileName);
                         } else {
-                            System.out.println("Invalid 'cat' usage. Use 'cat [filename]' or 'cat > [filename]'");
+                            System.out.println("Invalid 'cat' usage. Use 'cat <filename>' or 'cat > <filename>' or cat >> <filename>");
                         }
                     }
                     break;
@@ -129,7 +122,7 @@ public class Shell {
                             System.out.println("The system can't delete this directory");
                         } else {
                             try {
-                                if (!fileSystem.removeEntry(name, DirectoryEntry.DIRECTORY)) {
+                                if (!fileSystem.removeEntry(name)) {
                                     System.out.printf("The system could not find the directory '%s'%n", name);
                                 }
                             } catch (IllegalArgumentException iae) {
@@ -137,7 +130,7 @@ public class Shell {
                             }
                         }
                     } else {
-                        System.out.println("Invalid 'rmdir' usage. Use 'rmdir [directory name]'");
+                        System.out.println("Invalid 'rmdir' usage. Use 'rmdir <directory name>'");
                     }
                     break;
                 }
@@ -146,11 +139,11 @@ public class Shell {
                     String opts[] = input.split(" ", 2);
                     if (opts.length == 2) {
                         String name = opts[1];
-                        if (!fileSystem.removeEntry(name, DirectoryEntry.FILE)) {
+                        if (!fileSystem.removeEntry(name)) {
                             System.out.printf("The system could not find the file '%s'%n", name);
                         }
                     } else {
-                        System.out.println("Invalid 'rm' usage. Use 'rm [filename]'");
+                        System.out.println("Invalid 'rm' usage. Use 'rm <filename>'");
                     }
                     break;
                 }

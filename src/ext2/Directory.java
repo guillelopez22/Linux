@@ -2,7 +2,7 @@ package ext2;
 
 import java.util.ArrayList;
 
-public class Directory extends ArrayList<DirectoryEntry> {
+public class Directory extends ArrayList<DirectoryBlock> {
 
     public Directory() {
         super();
@@ -17,10 +17,6 @@ public class Directory extends ArrayList<DirectoryEntry> {
             }
         }
         return null;
-    }
-
-    public int getBlockNumber() {
-        return blockNumber;
     }
 
     public DirectoryBlock getBlockContaining(String name) {
@@ -42,33 +38,13 @@ public class Directory extends ArrayList<DirectoryEntry> {
     }
 
     // Returns the inode number of the ".." dir_entry of this directory (parent reference)
-    public int getParentInode(){
+    public int getParentInode() {
         DirectoryBlock firstBlock = this.get(0);
         DirectoryEntry parent = firstBlock.get(1);
         return parent.getInode();
     }
-    public boolean contains(String fileName) {
-        for (DirectoryEntry dirEntry : this) {
-            if (dirEntry.getFilename().equals(fileName)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public DirectoryEntry getEntryByName(String fileName) {
-        for (DirectoryEntry dirEntry : this) {
-            if (dirEntry.getFilename().equals(fileName)) {
-                return dirEntry;
-            }
-        }
-        return null;
-    }
-
-
 
     public DirectoryBlock getLastBlock() {
         return get(size() - 1);
     }
-
 }

@@ -16,23 +16,23 @@ public class FileSystem {
     private final Disk DISK;
 
     // Disk block size in KB
-    private final int BLOCK_SIZE_KB = 4096;
+    public static final int BLOCK_SIZE = 4096;
 
     // Blocks per group
     private final int DATA_BITMAP_BLOCKS = 2;
     private final int INODE_BITMAP_BLOCKS = 1;
-    private final int INODE_TABLE_BLOCKS = 16;
+    private final int INODE_TABLE_BLOCKS = 20;
 
     // Size per group
     private final int DATA_BITMAP_SIZE = DATA_BITMAP_BLOCKS * BLOCK_SIZE; // 8192 bytes
     private final int INODE_BITMAP_SIZE = INODE_BITMAP_BLOCKS * BLOCK_SIZE; // 4096 bytes
-    private final int INODE_TABLE_SIZE = INODE_TABLE_BLOCKS * BLOCK_SIZE; // 65536 bytes
+    private final int INODE_TABLE_SIZE = INODE_TABLE_BLOCKS * BLOCK_SIZE; // 81920 bytes
 
     // Offset per group
     private final int DATA_BITMAP_OFFSET = 0;
     private final int INODE_BITMAP_OFFSET = DATA_BITMAP_SIZE; // byte 8192
     private final int INODE_TABLE_OFFSET = INODE_BITMAP_OFFSET + INODE_BITMAP_SIZE; // byte 12288
-    private final int DATA_OFFSET = INODE_TABLE_OFFSET + INODE_TABLE_SIZE; // byte 77824
+    private final int DATA_OFFSET = INODE_TABLE_OFFSET + INODE_TABLE_SIZE; // byte 94208
 
     // Bitmaps
     private final byte DATA_BITMAP[] = new byte[DATA_BITMAP_SIZE];
@@ -40,11 +40,8 @@ public class FileSystem {
 
     private Directory currentDir;
     private InodeTable inodeTable;
-    
-    // String currentPath (start at root dir)
-    private String currentPath = "/";
 
-    public FileSystem(Disk disk) throws IOException {
+    public FileSystem(Disk disk) {
         DISK = disk;
     }
 
@@ -233,13 +230,13 @@ public class FileSystem {
         }
     }
 
-    public DirectoryEntry findEntry(String path, byte type) throws IOException {
+    public DirectoryEntry findEntry(String path) throws IOException {
         Directory initialDir = (path.startsWith("/")) ? getRoot() : currentDir;
-
+        DirectoryEntry entry = null;
         ArrayList<String> entries = Utils.splitPath(path);
         for (int i = 0; i < entries.size(); i++) {
             String name = entries.get(i);
-            DirectoryEntry entry = initialDir.findEntry(name, type);
+            entry = initialDir.findEntry(name);
             if (entry != null) {
                 if (entry.getType() == DirectoryEntry.DIRECTORY) {
                     Directory directory = new Directory();
@@ -258,9 +255,9 @@ public class FileSystem {
                     // It is a file so it doesn't have directory entries. Check if it is the last element in the path
                     return (i == entries.size() - 1) ? entry : null;
                 }
-            } else return null;
+            }
         }
-        return null;
+        return entry;
     }
 
     // Remove a dir_entry from the current directory
@@ -420,7 +417,6 @@ public class FileSystem {
         writeBitmaps();
     }
 
-
     // Given a file name, searches for the file in the current directory, and returns the data in the data blocks
     public byte[] readFile(String fileName) throws IOException {
         int inode;
@@ -494,7 +490,7 @@ public class FileSystem {
         int inodeNumber;
 
         try {
-            inodeNumber = currentDir.findEntry(fileName, DirectoryEntry.FILE).getInode();
+            inodeNumber = currentDir.findEntry(fileName).getInode();
         } catch (NullPointerException npe) {
             return false;
         }
@@ -625,8 +621,8 @@ public class FileSystem {
 
     public Directory getRoot() throws IOException {
         Directory root = new Directory();
-        Inode rootInode = inodeTable.findInode(1);
-        for (int block : rootInode.getBlocks()) {
+        Inode rootInode = inodeTable.get(1);
+        for (int block : rootInode.getDirectBlocks()) {
             root.add(readDirectoryBlock(block));
         }
         return root;
@@ -668,22 +664,13 @@ public class FileSystem {
         }
     }
 
-    public int getBlockSizeBytes() {
-        return BLOCK_SIZE_KB * 1024;
-    }
-
     // Calculate the data offset of the given data block number
     private int getDataBlockOffset(int blockNumber) {
         return DATA_OFFSET + (blockNumber - 1) * BLOCK_SIZE;
     }
 
-     // Calculate the inode offset of the given inode index
+    // Calculate the inode offset of the given inode index
     private int getInodeOffset(int inode) {
         return INODE_TABLE_OFFSET + (inode - 1) * 80;
     }
-
-    //public String getCurrentPath() {
-    //    return currentPath == null ? "/" : FilenameUtils.separatorsToUnix(currentPath);
-    //}
-
 }
