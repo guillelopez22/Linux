@@ -1,18 +1,29 @@
 package ext2;
 
-import java.io.IOException;
 import java.util.ArrayList;
 
 public class Directory extends ArrayList<DirectoryEntry> {
 
-    // Adds the record length of each dir_entry contained in this directory
     private int totalLength;
-    // Block number where the directory is saved along with its directory entries
-    private int blockNumber;
 
     public Directory(int blockNumber) {
         super();
         this.blockNumber = blockNumber;
+    }
+
+    public Directory() {
+        super();
+    }
+
+    public DirectoryEntry findEntry(String filename) {
+        for (DirectoryBlock block : this) {
+            for (DirectoryEntry dirEntry : block) {
+                if (dirEntry.getFilename().equals(filename)) {
+                    return dirEntry;
+                }
+            }
+        }
+        return null;
     }
 
     public int getTotalLength() {
@@ -47,23 +58,19 @@ public class Directory extends ArrayList<DirectoryEntry> {
 
     // Returns the inode number of the "." dir_entry of this directory (self reference)
     public int getInode() {
-        int inodeNumber = 0;
-        for (DirectoryEntry dirEntry : this) {
-            if (dirEntry.getFilename().equals(".")) {
-                return dirEntry.getInodeNumber();
-            }
-        }
-        return inodeNumber;
+        DirectoryBlock firstBlock = this.get(0);
+        DirectoryEntry self = firstBlock.get(0);
+        return self.getInode();
     }
 
     // Returns the inode number of the ".." dir_entry of this directory (parent reference)
-    public int getParentInode() throws IOException {
-        int inodeNumber = 0;
-        for (DirectoryEntry dirEntry : this) {
-            if (dirEntry.getFilename().equals("..")) {
-                return dirEntry.getInodeNumber();
-            }
-        }
-        return inodeNumber;
+    public int getParentInode(){
+        DirectoryBlock firstBlock = this.get(0);
+        DirectoryEntry parent = firstBlock.get(1);
+        return parent.getInode();
+    }
+
+    public DirectoryBlock getLastBlock() {
+        return get(size() - 1);
     }
 }

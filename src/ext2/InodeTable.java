@@ -16,4 +16,13 @@ public class InodeTable extends LinkedList<Inode> {
         }
         return null;
     }
+
+    public Inode findInode(int inodeNumber) {
+        for (Inode inode : this) {
+            if (inode.getInode() == inodeNumber) {
+                return inode;
+            }
+        }
+        return null;
+    }
 }

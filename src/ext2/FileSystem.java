@@ -12,7 +12,7 @@ public class FileSystem {
     private final Disk DISK;
 
     // Disk block size in KB
-    private final int BLOCK_SIZE_KB = 4;
+    private final int BLOCK_SIZE_KB = 4096;
 
     // Blocks per group
     private final int DATA_BITMAP_BLOCKS = 2;
@@ -20,9 +20,9 @@ public class FileSystem {
     private final int INODE_TABLE_BLOCKS = 16;
 
     // Size per group
-    private final int DATA_BITMAP_SIZE = DATA_BITMAP_BLOCKS * BLOCK_SIZE_KB * 1024; // 8192 bytes
-    private final int INODE_BITMAP_SIZE = INODE_BITMAP_BLOCKS * BLOCK_SIZE_KB * 1024; // 4096 bytes
-    private final int INODE_TABLE_SIZE = INODE_TABLE_BLOCKS * BLOCK_SIZE_KB * 1024; // 65536 bytes
+    private final int DATA_BITMAP_SIZE = DATA_BITMAP_BLOCKS * BLOCK_SIZE; // 8192 bytes
+    private final int INODE_BITMAP_SIZE = INODE_BITMAP_BLOCKS * BLOCK_SIZE; // 4096 bytes
+    private final int INODE_TABLE_SIZE = INODE_TABLE_BLOCKS * BLOCK_SIZE; // 65536 bytes
 
     // Offset per group
     private final int DATA_BITMAP_OFFSET = 0;
@@ -34,40 +34,28 @@ public class FileSystem {
     private final byte DATA_BITMAP[] = new byte[DATA_BITMAP_SIZE];
     private final byte INODE_BITMAP[] = new byte[INODE_BITMAP_SIZE];
 
-    // Current directory only changes with the cd command (which uses the readDirectoryFromPath(path) method)
+
     private Directory root;
     private Directory currentDirectory;
-
-    // Inode table
+    private Directory currentDir;
     private InodeTable inodeTable;
-
-    // String currentPath
-    private String currentPath;
+    
+    // String currentPath (start at root dir)
+    private String currentPath = "/";
 
     public FileSystem(Disk disk) throws IOException {
         DISK = disk;
-        initialize();
     }
 
-    public void format() throws IOException {
-        final byte ZEROS[] = new byte[DISK.getSizeBytes()];
-        DISK.seek(0);
-        DISK.write(ZEROS);
+    public void load() throws IOException {
+        if (currentDir == null) {
+            // Load bitmaps and inode table to memory
+            allocateBitmaps();
+            allocateInodeTable();
 
-        // Create the first directory (root)
-        createDirectory(null);
-        initialize();
-    }
-
-    // Get the structures from disk and allocate them to memory
-    private void initialize() throws IOException {
-        root = readDirectory(1);
-        currentDirectory = root;
-        currentPath = "/";
-
-        // Load bitmaps and inode table to memory
-        allocateBitmaps();
-        allocateInodeTable();
+            // Read the root directory
+            currentDir = getRoot();
+        }
     }
 
     private void allocateBitmaps() throws IOException {
@@ -89,11 +77,113 @@ public class FileSystem {
         }
     }
 
+    public void format() throws IOException {
+        final byte ZEROS[] = new byte[DISK.getSizeBytes()];
+        DISK.seek(0);
+        DISK.write(ZEROS);
+
+        // Create the first directory (root)
+        int dirBlock = BitUtils.nextClearBitThenSet(DATA_BITMAP);
+        int dirInode = BitUtils.nextClearBitThenSet(INODE_BITMAP);
+
+        // Create an inode for root
+        Inode inode = new Inode(dirInode, Inode.DIRECTORY);
+        inode.addBlock(dirBlock);
+        inodeTable = new InodeTable();
+        inodeTable.add(inode);
+
+        // Create . and .. directory entries
+        DirectoryBlock block = new DirectoryBlock(dirBlock);
+        DirectoryEntry self, parent;
+        self = new DirectoryEntry(dirInode, ".", DirectoryEntry.DIRECTORY);
+        parent = new DirectoryEntry(dirInode, "..", DirectoryEntry.DIRECTORY);
+        block.addEntry(self);
+        block.addEntry(parent);
+        currentDir = new Directory();
+        currentDir.add(block);
+
+        // Write the directory inode and its entries to disk
+        DISK.seek(getInodeOffset(dirInode));
+        DISK.write(inode.toByteArray());
+        DISK.seek(getDataBlockOffset(dirBlock));
+        DISK.write(self.toByteArray());
+        DISK.write(parent.toByteArray());
+
+        // Save data and inode bitmaps to disk
+        saveBitmaps();
+    }
+
     private void saveBitmaps() throws IOException {
         DISK.seek(DATA_BITMAP_OFFSET);
         DISK.write(DATA_BITMAP);
         DISK.write(INODE_BITMAP);
     }
+
+    public void writeDirectory(String name) throws IOException {
+        int dirInode = BitUtils.nextClearBitThenSet(INODE_BITMAP);
+
+        // Only the last block is writable, the previous ones should be full of dir_entries
+        DirectoryBlock lastBlock = currentDir.getLastBlock();
+
+        // Add the new directory as a dir_entry in the current one. Check if it fits in the last used block
+        DirectoryEntry dirEntry = new DirectoryEntry(dirInode, name, DirectoryEntry.DIRECTORY);
+        if (lastBlock.getRemainingLength() >= dirEntry.getIdealLen()) {
+            DirectoryEntry prevEntry = lastBlock.getLastEntry();
+            int lastEntryOffset = lastBlock.getLength() - prevEntry.getIdealLen();
+            lastBlock.addEntry(dirEntry);
+
+            // Write the previous dir_entry (because its rec_len was modified in addEntry()) and the new dir_entry to disk
+            DISK.seek(getDataBlockOffset(lastBlock.getBlock()) + lastEntryOffset);
+            DISK.write(prevEntry.toByteArray());
+            DISK.write(dirEntry.toByteArray());
+        } else {
+            // The new dir_entry doesn't fit in the block, create a new one
+            int newBlock = BitUtils.nextClearBitThenSet(DATA_BITMAP);
+            Inode inode = inodeTable.findInode(currentDir.getInode());
+            inode.addBlock(newBlock);
+
+            DirectoryBlock block = new DirectoryBlock(newBlock);
+            block.addEntry(dirEntry);
+            currentDir.add(block);
+
+            // Write the current directory inode to disk (to update it)
+            int inodeOffset = getInodeOffset(inode.getInode());
+            DISK.seek(inodeOffset);
+            DISK.write(inode.toByteArray());
+
+            // Write the new dir_entry to disk, in the newly assigned block
+            DISK.seek(getDataBlockOffset(newBlock));
+            DISK.write(dirEntry.toByteArray());
+        }
+
+        // Get the next available block for the new directory and create its inode
+        int dirBlock = BitUtils.nextClearBitThenSet(DATA_BITMAP);
+        Inode inode = new Inode(dirInode, Inode.DIRECTORY);
+        inode.addBlock(dirBlock);
+        inodeTable.add(inode);
+
+        // The parent of the new directory is going to be the current directory
+        int parentInode = currentDir.getInode();
+
+        // Create . and .. directory entries for the new directory
+        DirectoryEntry self, parent;
+        self = new DirectoryEntry(dirInode, ".", DirectoryEntry.DIRECTORY);
+        parent = new DirectoryEntry(parentInode, "..", DirectoryEntry.DIRECTORY);
+        DirectoryBlock block = new DirectoryBlock(dirBlock);
+        block.addEntry(self);
+        block.addEntry(parent);
+
+        // Write the directory inode and its entries to disk
+        DISK.seek(getInodeOffset(dirInode));
+        DISK.write(inode.toByteArray());
+        DISK.seek(getDataBlockOffset(dirBlock));
+        DISK.write(self.toByteArray());
+        DISK.write(parent.toByteArray());
+
+        // Save data and inode bitmaps to disk
+        saveBitmaps();
+    }
+
 
     // Creates a directory (in the current directory) with the given name. It also adds the . and .. directory entries
     public void createDirectory(String name) throws IOException {
@@ -127,6 +217,43 @@ public class FileSystem {
         DISK.write(parent.toByteArray());
 
         saveBitmaps();
+    }
+
+    // Given a block index, read the directory entries from that block
+    public DirectoryBlock readDirectoryBlock(int blockIndex) throws IOException {
+        DirectoryBlock block = new DirectoryBlock(blockIndex);
+        int entryOffset = getDataBlockOffset(blockIndex);
+        byte recLenBytes[] = new byte[2];
+        byte nameLenBytes[] = new byte[1];
+        short recLen;
+        byte nameLen;
+        int idealLen;
+
+        // This will determine when to stop reading a block (when the sum of all the rec_len equals 4096)
+        int bytesRead = 0;
+
+        while (bytesRead != BLOCK_SIZE) {
+            // Read de dir_entry's rec_len (skip the inode's 4 bytes)
+            DISK.seek(entryOffset + 4);
+            DISK.read(recLenBytes);
+            recLen = Shorts.fromByteArray(recLenBytes);
+            DISK.read(nameLenBytes);
+            nameLen = nameLenBytes[0];
+            idealLen = (4 * ((8 + nameLen + 3) / 4));
+
+            // The number of bytes this dir_entry has is determined by its ideal_len
+            byte dirEntry[] = new byte[idealLen];
+
+            // Go back to the start of this dir_entry and read all its bytes
+            DISK.seek(entryOffset);
+            DISK.read(dirEntry);
+            block.add(DirectoryEntry.fromByteArray(dirEntry));
+
+            // Update the dir_entry offset for the next one (if any)
+            entryOffset += recLen;
+            bytesRead += recLen;
+        }
+        return block;
     }
 
     // Given a block index, read the directory entries from that block
@@ -169,35 +296,38 @@ public class FileSystem {
     // Path may be in the form: /dir1/dir2/dir3/
     // This method would return the directory dir3 (if the path exists)
     // Used for cd <path>. For example: cd /usr/bin/ or cd home/documents/work
-    public Directory readDirectoryFromPath(String path) throws IOException {
+    public Directory readDirectoryBlock(String path) throws IOException {
         // Used to restore the path in case this method throws an exception while building the path
         String rollbackPath = getCurrentPath();
         Directory initialDir;
 
         // If path starts with "/", begin from the root directory
         if (path.startsWith("/")) {
-            initialDir = root;
+            initialDir = getRoot();
             currentPath = "/";
         } else
-            initialDir = currentDirectory;
+            initialDir = currentDir;
 
-        ArrayList<String> splitPath = Util.splitPath(path);
-        for (String dirName : splitPath) {
-            DirectoryEntry dirEntry = initialDir.getEntryByName(dirName);
-            if (dirEntry != null) {
-                if (dirEntry.getType() == DirectoryEntry.DIRECTORY) {
+        ArrayList<String> directories = Utils.splitPath(path);
+        for (String name : directories) {
+            // First we need to find the dir_entry to get the directory's inode (the one we are trying to find)
+            // Once we get the inode, we can know where are the blocks of that directory
+            DirectoryEntry entry = initialDir.findEntry(name);
+            if (entry != null) {
+                if (entry.getType() == DirectoryEntry.DIRECTORY) {
+                    Directory directory = new Directory();
+                    ArrayList<Integer> dirBlocks;
+                    int inodeNumber = entry.getInode();
+                    Inode inode = inodeTable.findInode(inodeNumber);
+                    dirBlocks = inode.getBlocks();
 
-                    // Get the blocks of the directory using the inode of the dirEntry
-                    int dirBlock;
-                    int inodeNumber = dirEntry.getInodeNumber();
-                    Inode inode = inodeTable.getByInodeNumber(inodeNumber);
+                    // Go through each block and read their dir_entries
+                    for (int block : dirBlocks) {
+                        directory.add(readDirectoryBlock(block));
+                    }
 
-                    // FIX ME: a directory can have more than one block containing its directory entries
-                    dirBlock = inode.getUsedPointers()[0];
-
-                    // Get the directory at this block and update the initial directory with the same one
-                    initialDir = readDirectory(dirBlock);
-                    currentPath = FilenameUtils.concat(getCurrentPath(), dirName.concat("/"));
+                    initialDir = directory;
+                    currentPath = FilenameUtils.concat(getCurrentPath(), name.concat("/"));
                 } else {
                     // It is a file so it doesn't have directory entries
                     currentPath = rollbackPath;
@@ -208,13 +338,11 @@ public class FileSystem {
                 return null;
             }
         }
-        currentDirectory = initialDir;
+        currentDir = initialDir;
         return initialDir;
     }
 
-    // Read and write files
-
-    // Saves the text into available data blocks, and then creates the dir_entry and the inode for the file
+ // Saves the text into available data blocks, and then creates the dir_entry and the inode for the file
     public void writeFile(String fileName, String content) throws IOException {
         // Split file's bytes into groups of 4KB and write each one to disk (one block per group)
         byte contentBytes[][] = BitUtils.splitBytes(content.getBytes(), 4096);
@@ -230,49 +358,69 @@ public class FileSystem {
         // Create a new inode for this file and write it to disk
         int inodeNumber = BitUtils.nextClearBitThenSet(INODE_BITMAP);
         Inode inode = new Inode(inodeNumber, Inode.FILE, content.length());
-        inode.addBlockPointers(fileBlocks);
+        inode.addBlock(fileBlocks);
         inodeTable.add(inode);
         DISK.seek(getInodeOffset(inodeNumber));
         DISK.write(inode.toByteArray());
 
-        // Create a dir_entry for this file and write it at the end of the directory
+        // Create a dir_entry for this file and add it to the block
         DirectoryEntry dirEntry = new DirectoryEntry(inodeNumber, fileName, DirectoryEntry.FILE);
-        DISK.seek(getDataBlockOffset(currentDirectory.getBlockNumber()) + currentDirectory.getTotalLength());
-        DISK.write(dirEntry.toByteArray());
-        currentDirectory.add(dirEntry);
+
+        // Only the last block is writable, the previous ones should be full of dir_entries
+        DirectoryBlock lastBlock = currentDir.getLastBlock();
+
+        // Check if the new dir_entry fits in the directory's last block
+        if (lastBlock.getRemainingLength() >= dirEntry.getIdealLen()) {
+            DirectoryEntry prevEntry = lastBlock.getLastEntry();
+            int lastEntryOffset = lastBlock.getLength() - prevEntry.getIdealLen();
+            lastBlock.addEntry(dirEntry);
+
+            // Write the previous dir_entry (because its rec_len was modified in addEntry()) and the new dir_entry to disk
+            DISK.seek(getDataBlockOffset(lastBlock.getBlock()) + lastEntryOffset);
+            DISK.write(prevEntry.toByteArray());
+            DISK.write(dirEntry.toByteArray());
+        } else {
+            // The new dir_entry doesn't fit in the block, create a new one
+            int newBlock = BitUtils.nextClearBitThenSet(DATA_BITMAP);
+            Inode currentDirInode = inodeTable.findInode(currentDir.getInode());
+            currentDirInode.addBlock(newBlock);
+
+            DirectoryBlock block = new DirectoryBlock(newBlock);
+            block.addEntry(dirEntry);
+            currentDir.add(block);
+
+            // Write the current directory inode to disk (to update it)
+            int inodeOffset = getInodeOffset(currentDirInode.getInode());
+            DISK.seek(inodeOffset);
+            DISK.write(currentDirInode.toByteArray());
+
+            // Write the new dir_entry to disk, in the newly assigned block
+            DISK.seek(getDataBlockOffset(newBlock));
+            DISK.write(dirEntry.toByteArray());
+        }
 
         saveBitmaps();
     }
 
-    // Given a file name, searches for the file in the current directory, and returns the data in the data blocks
+        // Given a file name, searches for the file in the current directory, and returns the data in the data blocks
     public byte[] readFile(String fileName) throws IOException {
-        int fileInode = 0;
-        for (DirectoryEntry dirEntry : currentDirectory) {
-            if (dirEntry.getFilename().equals(fileName)) {
-                fileInode = dirEntry.getInodeNumber();
-                break;
-            }
-        }
-        if (fileInode == 0) {
+        int inode = 0;
+        try {
+            inode = currentDir.findEntry(fileName).getInode();
+        } catch (NullPointerException npe) {
             // File not found
             return null;
         }
-        int fileBlocks[] = null;
+
+        ArrayList<Integer> fileBlocks = null;
         int fileSize = 0;
-        for (Inode inode : inodeTable) {
-            if (inode.getInodeNumber() == fileInode) {
-                fileBlocks = inode.getUsedPointers();
-                fileSize = inode.getSize();
-                break;
-            }
-        }
-        if (fileBlocks == null) {
-            // ??? :(
-            return null;
-        }
+        Inode fileInode = inodeTable.findInode(inode);
+        fileBlocks = fileInode.getBlocks();
+        fileSize = fileInode.getSize();
+
         byte data[] = new byte[fileSize];
-        if (fileBlocks.length == 1) {
-            DISK.seek(getDataBlockOffset(fileBlocks[0]));
+        if (fileBlocks.size() == 1) {
+            DISK.seek(getDataBlockOffset(fileBlocks.get(0)));
             DISK.read(data);
             return data;
         }
@@ -298,7 +446,7 @@ public class FileSystem {
 
     // Calculate the data offset of the given data block number
     private int getDataBlockOffset(int blockNumber) {
-        return DATA_OFFSET + (blockNumber - 1) * getBlockSizeBytes();
+        return DATA_OFFSET + (blockNumber - 1) * BLOCK_SIZE;
     }
 
     // Calculate the inode offset of the given inode index
@@ -307,10 +455,23 @@ public class FileSystem {
     }
 
     public Directory getCurrentDirectory() {
-        return currentDirectory;
+        return currentDir;
     }
 
     public String getCurrentPath() {
         return currentPath == null ? "/" : FilenameUtils.separatorsToUnix(currentPath);
+    }
+
+    public InodeTable getInodeTable() {
+        return inodeTable;
+    }
+
+    public Directory getRoot() throws IOException {
+        Directory root = new Directory();
+        Inode rootInode = inodeTable.findInode(1);
+        for (int block : rootInode.getBlocks()) {
+            root.add(readDirectoryBlock(block));
+        }
+        return root;
     }
 }
