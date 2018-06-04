@@ -3,9 +3,13 @@ package ext2;
 import com.google.common.primitives.Ints;
 import com.google.common.primitives.Shorts;
 import org.apache.commons.io.FilenameUtils;
+import com.sun.org.apache.bcel.internal.generic.IF_ACMPEQ;
+import org.apache.commons.io.FilenameUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
+
+import static java.lang.Math.toIntExact;
 
 public class FileSystem {
 
@@ -34,8 +38,6 @@ public class FileSystem {
     private final byte DATA_BITMAP[] = new byte[DATA_BITMAP_SIZE];
     private final byte INODE_BITMAP[] = new byte[INODE_BITMAP_SIZE];
 
-
-    private Directory root;
     private Directory currentDirectory;
     private Directory currentDir;
     private InodeTable inodeTable;
@@ -47,6 +49,7 @@ public class FileSystem {
         DISK = disk;
     }
 
+    // Get the structures from disk and allocate them to memory
     public void load() throws IOException {
         if (currentDir == null) {
             // Load bitmaps and inode table to memory
@@ -223,34 +226,44 @@ public class FileSystem {
     public DirectoryBlock readDirectoryBlock(int blockIndex) throws IOException {
         DirectoryBlock block = new DirectoryBlock(blockIndex);
         int entryOffset = getDataBlockOffset(blockIndex);
+
+        // Byte arrays
+        byte inodeBytes[] = new byte[4];
         byte recLenBytes[] = new byte[2];
-        byte nameLenBytes[] = new byte[1];
+        byte filenameBytes[];
+
+        int inode, idealLen;
         short recLen;
-        byte nameLen;
-        int idealLen;
+        byte nameLen, type;
+        String name;
 
         // This will determine when to stop reading a block (when the sum of all the rec_len equals 4096)
         int bytesRead = 0;
 
+        DISK.seek(entryOffset);
         while (bytesRead != BLOCK_SIZE) {
-            // Read de dir_entry's rec_len (skip the inode's 4 bytes)
-            DISK.seek(entryOffset + 4);
+            // Read dir_entry attributes from disk
+            DISK.read(inodeBytes);
             DISK.read(recLenBytes);
+            nameLen = DISK.readByte();
+            type = DISK.readByte();
+
+            inode = Ints.fromByteArray(inodeBytes);
             recLen = Shorts.fromByteArray(recLenBytes);
-            DISK.read(nameLenBytes);
-            nameLen = nameLenBytes[0];
+
+            // Read the file name bytes
             idealLen = (4 * ((8 + nameLen + 3) / 4));
+            filenameBytes = new byte[idealLen - 8];
+            DISK.read(filenameBytes);
+            name = new String(filenameBytes);
 
-            // The number of bytes this dir_entry has is determined by its ideal_len
-            byte dirEntry[] = new byte[idealLen];
+            // Check if the entry has been deleted (if the deletion time is set in its inode)
+            Inode entryInode = inodeTable.findInode(inode);
+            if (entryInode.getDeletionTime() == 0) {
+                DirectoryEntry entry = new DirectoryEntry(inode, recLen, type, name);
+                block.add(entry);
+            }
 
-            // Go back to the start of this dir_entry and read all its bytes
-            DISK.seek(entryOffset);
-            DISK.read(dirEntry);
-            block.add(DirectoryEntry.fromByteArray(dirEntry));
-
-            // Update the dir_entry offset for the next one (if any)
-            entryOffset += recLen;
             bytesRead += recLen;
         }
         return block;
@@ -340,6 +353,59 @@ public class FileSystem {
         }
         currentDir = initialDir;
         return initialDir;
+    }
+
+    // Remove a dir_entry from the current directory
+    // Returns true if the entry was 'deleted' successfully, false otherwise
+    public boolean removeEntry(String name, int type) throws IOException, IllegalArgumentException {
+        DirectoryBlock block;
+        DirectoryEntry entry;
+        Inode inode;
+        if ((block = currentDir.getBlockContaining(name, type)) != null) {
+            for (int i = 0; i < block.size(); i++) {
+                entry = block.get(i);
+                if (entry.getFilename().equals(name) && entry.getType() == type) {
+                    // This entry's inode
+                    inode = inodeTable.findInode(entry.getInode());
+
+                    // If it is a directory, check if it is empty
+                    if (type == DirectoryEntry.DIRECTORY) {
+                        for (int index : inode.getBlocks()) {
+                            if (readDirectoryBlock(index).hasEntries()) {
+                                throw new IllegalArgumentException("Directory is not empty. Cannot delete it");
+                            }
+                        }
+                    }
+
+                    // Clear the bits used by the dir_entry in the data bitmap
+                    for (int index : inode.getBlocks()) {
+                        BitUtils.clearBit(index, DATA_BITMAP);
+                    }
+
+                    // Clear the bit of this inode in the inode bitmap and set its deletion time, then write it to disk
+                    BitUtils.clearBit(inode.getInode(), INODE_BITMAP);
+                    inode.setDeletionTime(toIntExact(System.currentTimeMillis() / 1000));
+                    DISK.seek(getInodeOffset(inode.getInode()));
+                    DISK.write(inode.toByteArray());
+
+                    if (i == 0) {
+                        DISK.seek(getDataBlockOffset(block.getBlock()));
+                    } else {
+                        // Update and write to disk the rec_len of the previous entry so it can 'absorb' the 'deleted' entry
+                        DirectoryEntry previous = block.get(i - 1);
+                        int recLen = previous.getRecLen() + entry.getRecLen();
+                        previous.setRecLen((short) recLen);
+                        int prevOffset = block.getOffset(i - 1);
+                        DISK.seek(getDataBlockOffset(block.getBlock()) + prevOffset);
+                        DISK.write(previous.toByteArray());
+                    }
+                    block.remove(i);
+                    saveBitmaps();
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
  // Saves the text into available data blocks, and then creates the dir_entry and the inode for the file

@@ -15,10 +15,10 @@ public class Directory extends ArrayList<DirectoryEntry> {
         super();
     }
 
-    public DirectoryEntry findEntry(String filename) {
+    public DirectoryEntry findEntry(String filename, int type) {
         for (DirectoryBlock block : this) {
             for (DirectoryEntry dirEntry : block) {
-                if (dirEntry.getFilename().equals(filename)) {
+                if (dirEntry.getFilename().equals(filename) && dirEntry.getType() == type) {
                     return dirEntry;
                 }
             }
@@ -72,5 +72,16 @@ public class Directory extends ArrayList<DirectoryEntry> {
 
     public DirectoryBlock getLastBlock() {
         return get(size() - 1);
+    }
+
+    public DirectoryBlock getBlockContaining(String name, int type) {
+        for (DirectoryBlock block : this) {
+            for (DirectoryEntry entry : block) {
+                if (entry.getFilename().equals(name) && entry.getType() == type) {
+                    return block;
+                }
+            }
+        }
+        return null;
     }
 }

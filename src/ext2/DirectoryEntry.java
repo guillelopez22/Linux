@@ -21,8 +21,24 @@ public class DirectoryEntry {
     // File name (0-255 bytes)
     private String filename;
 
-    public DirectoryEntry(int inode, String name, byte type) {
+    public DirectoryEntry(int inode, byte type, String name) {
         this.inode = inode;
+        fileType = type;
+        filename = name;
+        // As long as filename.length is not > 255 the byte can still be recovered using Byte.toUnsignedInt() method
+        nameLen = (byte) filename.length();
+        if (nameLen % 4 != 0) {
+            // Not a multiple of 4, make it one by appending null terminators
+            int nullsToAdd = 4 - (nameLen % 4);
+            for (int i = 0; i < nullsToAdd; i++) {
+                filename += '\0';
+            }
+        }
+    }
+
+    public DirectoryEntry(int inode, short recLen, byte type, String name) {
+        this.inode = inode;
+        this.recLen = recLen;
         fileType = type;
         filename = name;
         // As long as filename.length is not > 255 the byte can still be recovered using Byte.toUnsignedInt() method
@@ -40,7 +56,11 @@ public class DirectoryEntry {
         return inode;
     }
 
-    public int getRecLen() {
+    public void setInode(int inode) {
+        this.inode = inode;
+    }
+
+    public short getRecLen() {
         return recLen;
     }
 
@@ -54,10 +74,6 @@ public class DirectoryEntry {
 
     public String getFilename() {
         return filename.trim();
-    }
-
-    public void setiNode(int iNode) {
-        this.inode = iNode;
     }
 
     public void setRecLen(short recLen) {
