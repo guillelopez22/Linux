@@ -2,7 +2,7 @@
 * To change this license header, choose License Headers in Project Properties.
 * To change this template file, choose Tools | Templates
 * and open the template in the editor.
-*/
+*/Encontrar dir entry por path/ cd a shell
 package ext2;
 
 import com.google.common.primitives.Bytes;
@@ -15,6 +15,7 @@ public class DirectoryEntry {
   public static final byte DIRECTORY = 1;
   public static final byte FILE = 2;
   public static final byte SYM_LINK = 3;
+  public static final byte HARD_LINK = 4;
   // Inode number (4 bytes)
   private int inode;
   // Record length (2 bytes)
