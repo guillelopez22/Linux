@@ -49,7 +49,7 @@ public class Shell{
           break;
         }
         case "cd": {
-          String opts[] = input.split(" ");
+          String opts[] = input.split(" ", 2);
           String path = (opts.length == 2) ? opts[1] : ".";
           try {
             cd(path);
@@ -59,16 +59,11 @@ public class Shell{
           break;
         }
         case "cat": {
-          String opts[] = input.split(" ");
-          if (opts.length == 2) {
-            // cat file.txt
-            String fileName = opts[1];
-            cat(fileName);
-          } else if (opts.length == 3) {
-            // cat > file.txt
-            String fileName = opts[2];
+          if (input.contains(" > ")) {
+            String opts[] = input.split(" > ");
+            String fileName = opts[1].trim();
             if (fileName.length() > 255) {
-              System.out.println("Error: File name too long (a maximum of 255 characters are allowed");
+              System.out.println("Error: File name too long (a maximum of 255 characters is allowed");
               break;
             }
             String content = "";
@@ -77,15 +72,59 @@ public class Shell{
               content += line + "\n";
             }
             fileSystem.writeFile(fileName, content);
+          } else if (input.contains(" >> ")) {
+            System.out.println("Append to file not supported (yet)");
           } else {
-            System.out.println("Invalid 'cat' usage. Use 'cat [filename]' or 'cat > [filename]'");
+            String opts[] = input.split(" ", 2);
+            if (opts.length == 2) {
+              // cat file.txt
+              String fileName = opts[1];
+              cat(fileName);
+            } else {
+              System.out.println("Invalid 'cat' usage. Use 'cat [filename]' or 'cat > [filename]'");
+            }
           }
           break;
         }
         case "mkdir": {
-          String opts[] = input.split(" ");
+          String opts[] = input.split(" ", 2);
           String dirName = opts[1];
-          fileSystem.createDirectory(dirName);
+          fileSystem.writeDirectory(dirName);
+          break;
+        }
+
+        case "rmdir": {
+          // . and .. can't be deleted
+          String opts[] = input.split(" ", 2);
+          if (opts.length == 2) {
+            String name = opts[1];
+            if (name.equals(".") || name.equals("..")) {
+              System.out.println("The system can't delete this directory");
+            } else {
+              try {
+                if (!fileSystem.removeEntry(name, DirectoryEntry.DIRECTORY)) {
+                  System.out.printf("The system could not find the directory '%s'%n", name);
+                }
+              } catch (IllegalArgumentException iae) {
+                System.out.println(iae.getMessage());
+              }
+            }
+          } else {
+            System.out.println("Invalid 'rmdir' usage. Use 'rmdir [directory name]'");
+          }
+          break;
+        }
+
+        case "rm": {
+          String opts[] = input.split(" ", 2);
+          if (opts.length == 2) {
+            String name = opts[1];
+            if (!fileSystem.removeEntry(name, DirectoryEntry.FILE)) {
+              System.out.printf("The system could not find the file '%s'%n", name);
+            }
+          } else {
+            System.out.println("Invalid 'rm' usage. Use 'rm [filename]'");
+          }
           break;
         }
         case "exit":
@@ -98,14 +137,17 @@ public class Shell{
   }
 
   public void ls(Directory directory) {
-    for (int i = 0; i < directory.size(); i++) {
-      DirectoryEntry dirEntry = directory.get(i);
-      if (dirEntry.getFilename().equals(".") || dirEntry.getFilename().equals(".."))
-      continue;
+    for (int block = 0; block < directory.size(); block++) {
+      DirectoryBlock dirBlock = directory.get(block);
+      for (int entry = 0; entry < dirBlock.size(); entry++) {
+        DirectoryEntry dirEntry = dirBlock.get(entry);
+        if (dirEntry.getFilename().equals(".") || dirEntry.getFilename().equals(".."))
+        continue;
 
-      System.out.printf((i == directory.size() - 1)
-      ? "%s%n"
-      : "%s  ", dirEntry.getFilename());
+        System.out.printf((block == directory.size() - 1) && (entry == dirBlock.size() - 1)
+        ? "%s%n"
+        : "%s  ", dirEntry.getFilename());
+      }
     }
   }
 
@@ -114,16 +156,18 @@ public class Shell{
     Inode inode;
     String creationDate, fileName, type, size;
 
-    for (DirectoryEntry dirEntry : directory) {
-      if (dirEntry.getFilename().equals(".") || dirEntry.getFilename().equals(".."))
-      continue;
+    for (DirectoryBlock block : directory) {
+      for (DirectoryEntry dirEntry : block) {
+        if (dirEntry.getFilename().equals(".") || dirEntry.getFilename().equals(".."))
+        continue;
 
-      inode = inodeTable.getByInodeNumber(dirEntry.getInodeNumber());
-      creationDate = Utils.epochTimeToDate(inode.getCreationTime());
-      size = (dirEntry.getType() == DirectoryEntry.DIRECTORY) ? "" : Integer.toString(inode.getSize());
-      type = (dirEntry.getType() == DirectoryEntry.DIRECTORY) ? "<DIR>" : "";
-      fileName = dirEntry.getFilename();
-      System.out.format("%22s %6s %6s %s%n", creationDate, type, size, fileName);
+        inode = inodeTable.get(dirEntry.getInode());
+        creationDate = Utils.epochTimeToDate(inode.getCreationTime());
+        size = (dirEntry.getType() == DirectoryEntry.DIRECTORY) ? "" : Integer.toString(inode.getSize());
+        type = (dirEntry.getType() == DirectoryEntry.DIRECTORY) ? "<DIR>" : "";
+        fileName = dirEntry.getFilename();
+        System.out.format("%22s %6s %6s %s%n", creationDate, type, size, fileName);
+      }
     }
   }
 
@@ -131,7 +175,7 @@ public class Shell{
     try {
       byte contentBytes[] = fileSystem.readFile(fileName);
       if (contentBytes == null) {
-        System.err.println("File not found");
+        System.out.println("The system could not find the file");
         return;
       }
       String content = new String(contentBytes);
@@ -142,7 +186,6 @@ public class Shell{
   }
 
   public void cd(String path) throws IOException {
-    if (fileSystem.readDirectoryFromPath(path) == null)
-    System.err.println("The system could not find the path specified");
+    if (fileSystem.readDirectoryBlock(path) == null)
+    System.out.println("The system could not find the path specified");
   }
-}
