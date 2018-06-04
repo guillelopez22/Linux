@@ -4,21 +4,14 @@ import java.util.ArrayList;
 
 public class Directory extends ArrayList<DirectoryEntry> {
 
-    private int totalLength;
-
-    public Directory(int blockNumber) {
-        super();
-        this.blockNumber = blockNumber;
-    }
-
     public Directory() {
         super();
     }
 
-    public DirectoryEntry findEntry(String filename, int type) {
+    public DirectoryEntry findEntry(String name) {
         for (DirectoryBlock block : this) {
             for (DirectoryEntry dirEntry : block) {
-                if (dirEntry.getFilename().equals(filename) && dirEntry.getType() == type) {
+                if (dirEntry.getFilename().equals(name)) {
                     return dirEntry;
                 }
             }
@@ -26,31 +19,16 @@ public class Directory extends ArrayList<DirectoryEntry> {
         return null;
     }
 
-    public int getTotalLength() {
-        int total = 0;
-        for (DirectoryEntry directoryEntry : this) {
-            total += directoryEntry.getRecLen();
-        }
-        return total;
-    }
-
     public int getBlockNumber() {
         return blockNumber;
     }
 
-    public boolean contains(String fileName) {
-        for (DirectoryEntry dirEntry : this) {
-            if (dirEntry.getFilename().equals(fileName)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public DirectoryEntry getEntryByName(String fileName) {
-        for (DirectoryEntry dirEntry : this) {
-            if (dirEntry.getFilename().equals(fileName)) {
-                return dirEntry;
+    public DirectoryBlock getBlockContaining(String name) {
+        for (DirectoryBlock block : this) {
+            for (DirectoryEntry entry : block) {
+                if (entry.getFilename().equals(name)) {
+                    return block;
+                }
             }
         }
         return null;
@@ -69,19 +47,28 @@ public class Directory extends ArrayList<DirectoryEntry> {
         DirectoryEntry parent = firstBlock.get(1);
         return parent.getInode();
     }
+    public boolean contains(String fileName) {
+        for (DirectoryEntry dirEntry : this) {
+            if (dirEntry.getFilename().equals(fileName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public DirectoryEntry getEntryByName(String fileName) {
+        for (DirectoryEntry dirEntry : this) {
+            if (dirEntry.getFilename().equals(fileName)) {
+                return dirEntry;
+            }
+        }
+        return null;
+    }
+
+
 
     public DirectoryBlock getLastBlock() {
         return get(size() - 1);
     }
 
-    public DirectoryBlock getBlockContaining(String name, int type) {
-        for (DirectoryBlock block : this) {
-            for (DirectoryEntry entry : block) {
-                if (entry.getFilename().equals(name) && entry.getType() == type) {
-                    return block;
-                }
-            }
-        }
-        return null;
-    }
 }

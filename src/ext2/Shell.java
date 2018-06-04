@@ -11,10 +11,14 @@ package ext2;
  */
 import java.io.IOException;
 import java.util.Scanner;
+import java.util.ArrayList
 
 public class Shell {
 
     private FileSystem fileSystem;
+    private String currentPath = "/";
+    public static final String ANSI_BLUE = "\u001B[34m";
+    public static final String ANSI_RESET = "\u001B[0m";
 
     public Shell(FileSystem fileSystem) {
         this.fileSystem = fileSystem;
@@ -56,9 +60,13 @@ public class Shell {
                     break;
                 }
                 case "cat": {
-                    if (input.contains(" > ")) {
+                   if (input.contains(" > ")) {
                         String opts[] = input.split(" > ");
                         String fileName = opts[1].trim();
+                        if (Utils.containsIllegals(fileName)) {
+                            System.out.println("Illegal character found in the file name");
+                            break;
+                        }
                         if (fileName.length() > 255) {
                             System.out.println("Error: File name too long (a maximum of 255 characters is allowed");
                             break;
@@ -68,9 +76,23 @@ public class Shell {
                         while (!(line = scanner.nextLine()).equals("eof")) {
                             content += line + "\n";
                         }
-                        fileSystem.writeFile(fileName, content);
+                        try {
+                            fileSystem.writeFile(fileName, content);
+                        } catch (IllegalArgumentException iae) {
+                            System.out.println(iae.getMessage());
+                        }
                     } else if (input.contains(" >> ")) {
-                        System.out.println("Append to file not supported (yet)");
+                        String opts[] = input.split(">>");
+                        String fileName = opts[1].trim();
+                        String content = "";
+                        String line;
+                        while (!(line = scanner.nextLine()).equals("eof")) {
+                            content += line + "\n";
+                        }
+                        if (!fileSystem.append(fileName, content)) {
+                            System.out.println("The file was not found");
+                            break;
+                        }
                     } else {
                         String opts[] = input.split(" ", 2);
                         if (opts.length == 2) {
@@ -82,12 +104,19 @@ public class Shell {
                         }
                     }
                     break;
-                }
 
                 case "mkdir": {
-                    String opts[] = input.split(" ");
+                    String opts[] = input.split(" ", 2);
                     String dirName = opts[1];
-                    fileSystem.createDirectory(dirName);
+                    if (Utils.containsIllegals(dirName)) {
+                        System.out.println("Illegal character found in the file name");
+                        break;
+                    }
+                    try {
+                        fileSystem.writeDirectory(dirName);
+                    } catch (IllegalArgumentException iae) {
+                        System.out.println(iae.getMessage());
+                    }
                     break;
                 }
 
@@ -185,8 +214,45 @@ public class Shell {
     }
 
     public void cd(String path) throws IOException {
-        if (fileSystem.readDirectoryBlock(path) == null)
-            System.out.println("The system could not find the path specified");
+        // Used to restore the path in case this method throws an exception while building the path
+        String rollbackPath = getCurrentPath();
+        Directory initialDir = (path.startsWith("/")) ? fileSystem.getRoot() : fileSystem.getCurrentDirectory();
+        currentPath = (path.startsWith("/")) ? "/" : currentPath;
+
+        ArrayList<String> directories = Utils.splitPath(path);
+        for (String name : directories) {
+            DirectoryEntry entry = initialDir.findEntry(name);
+            if (entry != null) {
+                if (entry.getType() == DirectoryEntry.DIRECTORY) {
+                    Directory directory = new Directory();
+                    ArrayList<Integer> dirBlocks;
+                    int inodeNumber = entry.getInode();
+                    Inode inode = fileSystem.getInodeTable().get(inodeNumber);
+                    dirBlocks = inode.getDirectBlocks();
+
+                    // Go through each block and read their dir_entries
+                    for (int block : dirBlocks)
+                        directory.add(fileSystem.readDirectoryBlock(block));
+
+                    initialDir = directory;
+                    currentPath = FilenameUtils.concat(getCurrentPath(), name.concat("/"));
+                } else {
+                    // It is a file so it doesn't have directory entries
+                    currentPath = rollbackPath;
+                    System.out.println("The system could not find the path specified");
+                    return;
+                }
+            } else {
+                currentPath = rollbackPath;
+                System.out.println("The system could not find the path specified");
+                return;
+            }
+        }
+        fileSystem.setCurrentDirectory(initialDir);
+    }
+
+    public String getCurrentPath() {
+        return currentPath == null ? "/" : FilenameUtils.separatorsToUnix(currentPath);
     }
 }
 

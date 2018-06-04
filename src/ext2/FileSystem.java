@@ -3,9 +3,6 @@ package ext2;
 import com.google.common.primitives.Bytes;
 import com.google.common.primitives.Ints;
 import com.google.common.primitives.Shorts;
-import org.apache.commons.io.FilenameUtils;
-import com.sun.org.apache.bcel.internal.generic.IF_ACMPEQ;
-import org.apache.commons.io.FilenameUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -40,7 +37,6 @@ public class FileSystem {
     private final byte DATA_BITMAP[] = new byte[DATA_BITMAP_SIZE];
     private final byte INODE_BITMAP[] = new byte[INODE_BITMAP_SIZE];
 
-    private Directory currentDirectory;
     private Directory currentDir;
     private InodeTable inodeTable;
     
@@ -127,9 +123,10 @@ public class FileSystem {
         DISK.write(INODE_BITMAP);
     }
 
-
-
-    public void writeDirectory(String name) throws IOException {
+    public void writeDirectory(String name) throws IOException, IllegalArgumentException {
+        if (currentDir.findEntry(name) != null) {
+            throw new IllegalArgumentException("The is already a file with the same name");
+        }
         int dirInode = BitUtils.nextClearBitThenSet(INODE_BITMAP);
 
         addDirectoryEntry(dirInode, DirectoryEntry.DIRECTORY, name);
@@ -165,7 +162,6 @@ public class FileSystem {
     // Given a block index, read the directory entries from that block
     public DirectoryBlock readDirectoryBlock(int blockIndex) throws IOException {
         DirectoryBlock block = new DirectoryBlock(blockIndex);
-        int entryOffset = getDataBlockOffset(blockIndex);
 
         // Byte arrays
         byte inodeBytes[] = new byte[4];
@@ -178,10 +174,10 @@ public class FileSystem {
         String name;
 
         // This will determine when to stop reading a block (when the sum of all the rec_len equals 4096)
-        int bytesRead = 0;
+        int recLenCount = 0;
 
-        DISK.seek(entryOffset);
-        while (bytesRead != BLOCK_SIZE) {
+        DISK.seek(getDataBlockOffset(blockIndex));
+        while (recLenCount != BLOCK_SIZE) {
             // Read dir_entry attributes from disk
             DISK.read(inodeBytes);
             DISK.read(recLenBytes);
@@ -198,13 +194,13 @@ public class FileSystem {
             name = new String(filenameBytes);
 
             // Check if the entry has been deleted (if the deletion time is set in its inode)
-            Inode entryInode = inodeTable.findInode(inode);
+            Inode entryInode = inodeTable.get(inode);
             if (entryInode.getDeletionTime() == 0) {
                 DirectoryEntry entry = new DirectoryEntry(inode, recLen, type, name);
                 block.add(entry);
+                recLenCount += recLen;
+                DISK.seek(getDataBlockOffset(blockIndex) + recLenCount);
             }
-
-            bytesRead += recLen;
         }
         return block;
     }
@@ -366,8 +362,11 @@ public class FileSystem {
     }
 
     // Saves the text into available data blocks, and then creates the dir_entry and the inode for the file
-    public void writeFile(String fileName, String text) throws IOException {
+    public void writeFile(String fileName, String text) throws IOException, IllegalArgumentException {
         // Split file's bytes into groups of 4KB and write each one to disk (one block per group)
+        if (currentDir.findEntry(fileName) != null) {
+            throw new IllegalArgumentException("The is already a file with the same name");
+        }
         byte content[][] = BitUtils.splitBytes(text.getBytes(), BLOCK_SIZE);
         int blocksNeeded = content.length;
         // Bytes that will go in the direct pointers
@@ -418,6 +417,7 @@ public class FileSystem {
         addDirectoryEntry(inodeNumber, DirectoryEntry.FILE, fileName);
         writeBitmaps();
     }
+
 
     // Given a file name, searches for the file in the current directory, and returns the data in the data blocks
     public byte[] readFile(String fileName) throws IOException {
@@ -598,32 +598,12 @@ public class FileSystem {
         return references;
     }
 
-    // Getters and setters
-
-    public int getBlockSizeBytes() {
-        return BLOCK_SIZE_KB * 1024;
-    }
-
-    // Calculate the data offset of the given data block number
-    private int getDataBlockOffset(int blockNumber) {
-        return DATA_OFFSET + (blockNumber - 1) * BLOCK_SIZE;
-    }
-
-     // Calculate the inode offset of the given inode index
-    private int getInodeOffset(int inode) {
-        return INODE_TABLE_OFFSET + (inode - 1) * 80;
-    }
-
     public Directory getCurrentDirectory() {
         return currentDir;
     }
 
     public void setCurrentDirectory(Directory directory) {
         this.currentDir = directory;
-    }
-
-    public String getCurrentPath() {
-        return currentPath == null ? "/" : FilenameUtils.separatorsToUnix(currentPath);
     }
 
     public InodeTable getInodeTable() {
@@ -638,6 +618,7 @@ public class FileSystem {
         }
         return root;
     }
+
     // Add a new directory entry to the current directory
     private void addDirectoryEntry(int inodeNumber, byte type, String name) throws IOException {
         // Only the last block is writable, the previous ones should be full of dir_entries
@@ -673,4 +654,22 @@ public class FileSystem {
             DISK.write(entry.toByteArray());
         }
     }
+    public int getBlockSizeBytes() {
+        return BLOCK_SIZE_KB * 1024;
+    }
+
+    // Calculate the data offset of the given data block number
+    private int getDataBlockOffset(int blockNumber) {
+        return DATA_OFFSET + (blockNumber - 1) * BLOCK_SIZE;
+    }
+
+     // Calculate the inode offset of the given inode index
+    private int getInodeOffset(int inode) {
+        return INODE_TABLE_OFFSET + (inode - 1) * 80;
+    }
+
+    //public String getCurrentPath() {
+    //    return currentPath == null ? "/" : FilenameUtils.separatorsToUnix(currentPath);
+    //}
+
 }
