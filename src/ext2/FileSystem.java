@@ -34,7 +34,6 @@ public class FileSystem {
     private final byte DATA_BITMAP[] = new byte[DATA_BITMAP_SIZE];
     private final byte INODE_BITMAP[] = new byte[INODE_BITMAP_SIZE];
 
-    // Root directory and current directory
     // Current directory only changes with the cd command (which uses the readDirectoryFromPath(path) method)
     private Directory root;
     private Directory currentDirectory;
