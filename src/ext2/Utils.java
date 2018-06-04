@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.nio.ShortBuffer;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 
 public final class Util {
@@ -85,5 +86,14 @@ public final class Util {
             bin += String.format("%8s", Integer.toBinaryString(b & 0xFF)).replace(' ', '0') + " ";
         }
         System.out.println(bin);
+    }
+
+    public static ArrayList<String> splitPath(String path) {
+        String[] split = path.split("/");
+        ArrayList<String> directories = new ArrayList<>(split.length);
+        for (String dir : split)
+            if (dir.length() > 0)
+                directories.add(dir);
+        return directories;
     }
 }
