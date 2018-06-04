@@ -104,7 +104,7 @@ public class Shell {
                         }
                     }
                     break;
-
+                }
                 case "mkdir": {
                     String opts[] = input.split(" ", 2);
                     String dirName = opts[1];
@@ -155,6 +155,27 @@ public class Shell {
                     break;
                 }
 
+                case "ln": {
+                    String params[] = input.split(" ", 3);
+                    if (params[1].equals("-s")) {
+                        // ln -s (simbolic link)
+                        String paths[] = input.split(" -s ")[1].split(" ", 2);
+                        if (paths.length == 2) {
+                            String source = paths[0];
+                            String dest = paths[1];
+                            fileSystem.writeLink(source, dest, DirectoryEntry.SYM_LINK);
+                        } else {
+                            System.out.println("Invalid 'ln' usage. Use 'ln [-s] <source> <destination>' or 'ln <source> <destination>'");
+                        }
+                    } else {
+                        // ln (hard link)
+                        String paths[] = input.split(" ", 2)[1].split(" ", 2);
+                        String source = paths[0];
+                        String des = paths[1];
+                        fileSystem.writeLink(source, des, DirectoryEntry.HARD_LINK);
+                    }
+                    break;
+                }
                 case "exit":
                     break mainloop;
                 default:
@@ -169,12 +190,11 @@ public class Shell {
             DirectoryBlock dirBlock = directory.get(block);
             for (int entry = 0; entry < dirBlock.size(); entry++) {
                 DirectoryEntry dirEntry = dirBlock.get(entry);
-                if (dirEntry.getFilename().equals(".") || dirEntry.getFilename().equals(".."))
-                    continue;
+                if (dirEntry.getFilename().equals(".") || dirEntry.getFilename().equals("..")) continue;
 
                 System.out.printf((block == directory.size() - 1) && (entry == dirBlock.size() - 1)
-                        ? "%s%n"
-                        : "%s  ", dirEntry.getFilename());
+                        ? (dirEntry.getType() == DirectoryEntry.DIRECTORY) ? ANSI_BLUE + "%s%n" + ANSI_RESET : "%s%n"
+                        : (dirEntry.getType() == DirectoryEntry.DIRECTORY) ? ANSI_BLUE + "%s  " + ANSI_RESET : "%s  ", dirEntry.getFilename());
             }
         }
     }
@@ -182,19 +202,27 @@ public class Shell {
     public void lsExtended(Directory directory) {
         InodeTable inodeTable = fileSystem.getInodeTable();
         Inode inode;
-        String creationDate, fileName, type, size;
+        String creationDate, accessDate, modifiedDate, fileName, type, size;
+        if (directory.get(0).hasEntries())
+            System.out.format("%22s  %22s  %22s  %6s %8s %s%n", "Created", "Last access", "Modified", "Type", "Size", "Name");
 
         for (DirectoryBlock block : directory) {
             for (DirectoryEntry dirEntry : block) {
-                if (dirEntry.getFilename().equals(".") || dirEntry.getFilename().equals(".."))
-                    continue;
+                if (dirEntry.getFilename().equals(".") || dirEntry.getFilename().equals("..")) continue;
 
-                inode = inodeTable.findInode(dirEntry.getInode());
+                inode = inodeTable.get(dirEntry.getInode());
                 creationDate = Utils.epochTimeToDate(inode.getCreationTime());
+                accessDate = (dirEntry.getType() == DirectoryEntry.DIRECTORY) ? "" : Utils.epochTimeToDate(inode.getLastAccessTime());
+                modifiedDate = (dirEntry.getType() == DirectoryEntry.DIRECTORY) ? "" : Utils.epochTimeToDate(inode.getModifiedTime());
                 size = (dirEntry.getType() == DirectoryEntry.DIRECTORY) ? "" : Integer.toString(inode.getSize());
                 type = (dirEntry.getType() == DirectoryEntry.DIRECTORY) ? "<DIR>" : "";
                 fileName = dirEntry.getFilename();
-                System.out.format("%22s %6s %6s %s%n", creationDate, type, size, fileName);
+
+                System.out.format(
+                        (dirEntry.getType() == DirectoryEntry.DIRECTORY)
+                                ? "%22s  %22s  %22s  %6s %8s " + ANSI_BLUE + "%s" + ANSI_BLUE + "%n" + ANSI_RESET
+                                : "%22s  %22s  %22s  %6s %8s %s%n",
+                        creationDate, accessDate, modifiedDate, type, size, fileName);
             }
         }
     }
@@ -255,4 +283,3 @@ public class Shell {
         return currentPath == null ? "/" : FilenameUtils.separatorsToUnix(currentPath);
     }
 }
-
