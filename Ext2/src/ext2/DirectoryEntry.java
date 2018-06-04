@@ -6,10 +6,6 @@
 package ext2;
 
 import com.google.common.primitives.Bytes;
-import com.google.common.primitives.Ints;
-import com.google.common.primitives.Shorts;
-
-import java.util.Arrays;
 
 /**
 *
@@ -18,8 +14,9 @@ import java.util.Arrays;
 public class DirectoryEntry {
   public static final byte DIRECTORY = 1;
   public static final byte FILE = 2;
+  public static final byte SYM_LINK = 3;
   // Inode number (4 bytes)
-  private int iNode;
+  private int inode;
   // Record length (2 bytes)
   private short recLen;
   // Name length (1 byte)
@@ -29,11 +26,10 @@ public class DirectoryEntry {
   // File name (0 - 255 bytes)
   private String filename;
 
-  public DirectoryEntry(int inode, String name, byte type) {
-    iNode = inode;
+  public DirectoryEntry(int inode, byte type, String name) {
+    this.inode = inode;
     fileType = type;
     filename = name;
-    // FIX ME: If filename.length > 127 the byte will overflow
     // As long as filename.length is not > 255 the byte can still be recovered using Byte.toUnsignedInt() method
     nameLen = (byte) filename.length();
     if (nameLen % 4 != 0) {
@@ -43,49 +39,38 @@ public class DirectoryEntry {
         filename += '\0';
       }
     }
-    // 8 bytes are needed for: inode, rec_len, name_len, and type. File name length varies
-    recLen = (short) (8 + filename.length());
   }
 
-  // Create a directory entry from an array containing all its bytes
-  public static DirectoryEntry fromByteArray(byte[] array) {
-    // The first 8 bytes are fixed (inode, rec_len, name_len, type)
-    final byte I_NODE[] = Arrays.copyOfRange(array, 0, 4);
-    final byte REC_LEN[] = Arrays.copyOfRange(array, 4, 6);
-    final byte FILE_NAME[] = Arrays.copyOfRange(array, 8, array.length);
-    int inode = Ints.fromByteArray(I_NODE);
-    short recLen = Shorts.fromByteArray(REC_LEN);
-    byte nameLen = array[6];
-    byte type = array[7];
-    String fileName = new String(FILE_NAME);
-
-    // Create a new directory entry instance
-    DirectoryEntry dirEntry = new DirectoryEntry(inode, fileName, type);
-    dirEntry.setNameLen(nameLen);
-    dirEntry.setRecLen(recLen);
-    return dirEntry;
+  public DirectoryEntry(int inode, short recLen, byte type, String name) {
+    this(inode, type, name);
+    this.recLen = recLen;
   }
 
   // Byte array representation of a directory entry so we can write it back to disk
   public byte[] toByteArray() {
-    final byte I_NODE[] = Util.toByteArray(iNode);
-    final byte REC_LEN[] = Util.toByteArray(recLen);
-    final byte NAME_LEN[] = Util.toByteArray(nameLen);
-    final byte TYPE[] = Util.toByteArray(fileType);
+    final byte I_NODE[] = BitUtils.toByteArray(inode);
+    final byte REC_LEN[] = BitUtils.toByteArray(recLen);
+    final byte NAME_LEN[] = BitUtils.toByteArray(nameLen);
+    final byte TYPE[] = BitUtils.toByteArray(fileType);
     final byte FILE_NAME[] = filename.getBytes();
     return Bytes.concat(I_NODE, REC_LEN, NAME_LEN, TYPE, FILE_NAME);
   }
 
-  // Getters and setters
+  // Ideal length: every directory entry has an ideal length (multiple of 4) based on
+  // how many characters its file name has
+  public short getIdealLen() {
+    return (short) (4 * ((8 + nameLen + 3) / 4));
+  }
+
   public int getInode() {
-    return iNode;
+    return inode;
   }
 
-  public void setInode(int iNode) {
-    this.iNode = iNode;
+  public void setInode(int inode) {
+    this.inode = inode;
   }
 
-  public int getRecLen() {
+  public short getRecLen() {
     return recLen;
   }
 
@@ -93,27 +78,11 @@ public class DirectoryEntry {
     this.recLen = recLen;
   }
 
-  public int getNameLen() {
-    return nameLen;
-  }
-
-  public void setNameLen(byte nameLen) {
-    this.nameLen = nameLen;
-  }
-
   public int getType() {
     return fileType;
   }
 
-  public void setType(byte fileType) {
-    this.fileType = fileType;
-  }
-
   public String getFilename() {
     return filename.trim();
-  }
-
-  public void setFilename(String filename) {
-    this.filename = filename;
   }
 }
